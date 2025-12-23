@@ -1,0 +1,8 @@
+/target/
+/data/processed/*.parquet
+/data/raw/
+/results/backtests/*.json
+Cargo.lock
+*.json
+!results/.gitkeep
+!data/.gitkeep
