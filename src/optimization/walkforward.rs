@@ -35,10 +35,7 @@ impl WalkForward {
     }
 
     pub fn run(&self, train_ratio: f64) -> WalkForwardResult {
-        assert!(
-            train_ratio > 0.0 && train_ratio < 1.0,
-            "Train ratio must be between 0 and 1"
-        );
+        assert!(train_ratio > 0.0 && train_ratio < 1.0, "Train ratio must be between 0 and 1");
 
         let split_point = (self.data.len() as f64 * train_ratio) as usize;
         let train_data = &self.data[..split_point];
@@ -47,16 +44,8 @@ impl WalkForward {
         println!("Walk-Forward Validation");
         println!("======================");
         println!("Total bars: {}", self.data.len());
-        println!(
-            "Train bars: {} ({:.1}%)",
-            train_data.len(),
-            train_ratio * 100.0
-        );
-        println!(
-            "Test bars:  {} ({:.1}%)\n",
-            test_data.len(),
-            (1.0 - train_ratio) * 100.0
-        );
+        println!("Train bars: {} ({:.1}%)", train_data.len(), train_ratio * 100.0);
+        println!("Test bars:  {} ({:.1}%)\n", test_data.len(), (1.0 - train_ratio) * 100.0);
 
         println!("Phase 1: Optimization on training set...");
         let sweep = ParameterSweep::new(
@@ -67,7 +56,8 @@ impl WalkForward {
 
         let results = sweep.sweep_sma_periods((20, 100), (50, 200), 10);
 
-        let best = ParameterSweep::find_best_sharpe(&results).expect("No optimization results");
+        let best = ParameterSweep::find_best_sharpe(&results)
+            .expect("No optimization results");
 
         println!(
             "Best in-sample parameters: {}/{} (Sharpe: {:.2}, Return: {:.2}%)\n",

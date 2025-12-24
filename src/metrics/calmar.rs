@@ -1,8 +1,8 @@
 /// Calculate Calmar ratio: annualized return / absolute max drawdown
-///
+/// 
 /// Calmar ratio measures return per unit of drawdown risk.
 /// Higher is better. Above 1.0 is good, above 3.0 is excellent.
-///
+/// 
 /// Formula: (Total Return / Years) / |Max Drawdown|
 pub fn calculate_calmar_ratio(total_return: f64, max_drawdown: f64, total_days: usize) -> f64 {
     if max_drawdown == 0.0 {

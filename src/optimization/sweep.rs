@@ -48,10 +48,7 @@ impl ParameterSweep {
             }
         }
 
-        println!(
-            "Testing {} parameter combinations...",
-            parameter_combinations.len()
-        );
+        println!("Testing {} parameter combinations...", parameter_combinations.len());
 
         let results: Vec<OptimizationResult> = parameter_combinations
             .par_iter()

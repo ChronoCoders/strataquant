@@ -290,23 +290,8 @@ fn run_backtest(
     println!("Final equity:    ${:>12.2}", result.final_equity);
     println!("Total return:    {:>11.2}%", result.total_return * 100.0);
     println!("Sharpe ratio:    {:>12.2}", result.sharpe_ratio);
-    println!("Sortino ratio:   {:>12.2}", result.sortino_ratio);
-    println!("Calmar ratio:    {:>12.2}", result.calmar_ratio);
     println!("Max drawdown:    {:>11.2}%", result.max_drawdown * 100.0);
     println!("Total trades:    {:>12}", result.total_trades);
-
-    if let Some(stats) = &result.trade_stats {
-        println!("\n=== TRADE ANALYSIS ===");
-        println!("Win rate:        {:>11.1}%", stats.win_rate * 100.0);
-        println!("Profit factor:   {:>12.2}", stats.profit_factor);
-        println!("Avg win:         ${:>11.2}", stats.avg_win);
-        println!("Avg loss:        ${:>11.2}", stats.avg_loss);
-        println!("Largest win:     ${:>11.2}", stats.largest_win);
-        println!("Largest loss:    ${:>11.2}", stats.largest_loss);
-        println!("Expectancy:      ${:>11.2}", stats.expectancy);
-        println!("Win streak:      {:>12}", stats.longest_win_streak);
-        println!("Loss streak:     {:>12}", stats.longest_loss_streak);
-    }
 
     let output_path = Path::new("results/backtests").join(output_filename);
     match result.save_to_file(&output_path) {
