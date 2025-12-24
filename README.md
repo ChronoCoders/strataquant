@@ -1,12 +1,18 @@
-# StrataQuant v0.3.0
+# StrataQuant v0.4.0
 
-Truth in crypto backtesting. Multi-strategy framework with advanced metrics and honest out-of-sample validation.
+Truth in crypto backtesting. Risk management framework with position sizing, stop losses, and honest out-of-sample validation.
 
 ## What This Is
 
 StrataQuant is a quantitative research engine for Bitcoin backtesting that prioritizes honesty over presentation. This tool shows real risk metrics, includes execution costs, and doesn't cherry-pick results.
 
-**v0.3.0 adds:**
+**v0.4.0 adds:**
+- Position sizing (Kelly, Fixed %, Fixed $, Half Kelly, Fixed Fractional)
+- Stop losses (Fixed %, Trailing %, ATR-based, Time limit)
+- Risk limits (drawdown thresholds, position size limits, trade frequency)
+- **CRITICAL BUG FIX:** Proper sell execution (v0.3.0 didn't actually sell positions)
+
+**v0.3.0 added:**
 - Sortino ratio (downside deviation only)
 - Calmar ratio (return per unit of drawdown)
 - Complete trade tracking and analysis
@@ -31,8 +37,17 @@ Most backtesting engines show you inflated returns and hide the drawdowns. Strat
 - Walk-forward validation exposes overfitting
 - Complete trade analysis with win rates and streaks
 - Advanced risk metrics (Sortino, Calmar)
+- **Proper trade execution** (v0.4.0 fix - v0.3.0 results were incorrect)
 
 The v0.1.0 buy-and-hold result of 857% return demonstrates the opportunity. The -76.64% drawdown demonstrates the risk. Both numbers matter equally.
+
+## Important Notice - v0.4.0 Bug Fix
+
+**v0.3.0 had a critical bug:** The engine recorded trades but never executed sells. This inflated returns and made all results incorrect.
+
+**v0.4.0 fixes this:** Proper buy AND sell execution. All results are now accurate.
+
+**Impact:** v0.3.0 results are invalid. Always use v0.4.0 or later.
 
 ## Installation
 
@@ -69,6 +84,39 @@ strataquant walkforward --train-ratio 0.7
 # 6. Compare all strategies
 strataquant compare
 ```
+
+## Risk Management (v0.4.0 - Programmatic API)
+
+```rust
+use strataquant::backtest::{BacktestEngine, ExecutionModel, StopLossMethod, PositionSizingMethod};
+use strataquant::data::load_from_parquet;
+use strataquant::strategies::SMACrossover;
+use std::path::Path;
+
+fn main() {
+    let data = load_from_parquet(Path::new("data/processed/btc_1d.parquet"))
+        .expect("Failed to load data");
+    
+    let capital = 100_000.0;
+    let execution_model = ExecutionModel::new(10.0, 5.0);
+    let strategy = SMACrossover::new(20, 50);
+    
+    // Configure risk management
+    let engine = BacktestEngine::new(data, capital, execution_model)
+        .with_position_sizing(PositionSizingMethod::FixedPercent(50.0))
+        .with_stop_loss(StopLossMethod::Trailing(10.0));
+    
+    let result = engine.run(&strategy);
+    
+    println!("Return: {:.2}%", result.total_return * 100.0);
+    println!("Max DD: {:.2}%", result.max_drawdown * 100.0);
+    println!("Trades: {}", result.total_trades);
+}
+```
+
+See `src/bin/test_stops.rs` for complete examples.
+
+**Note:** CLI support for risk management planned for v0.5.0.
 
 ## Commands
 
@@ -156,7 +204,10 @@ strataquant/
 │   │   ├── engine.rs      # Core backtest logic
 │   │   ├── types.rs       # Portfolio & execution
 │   │   ├── result.rs      # Result serialization
-│   │   └── trade.rs       # Trade tracking (v0.3.0)
+│   │   ├── trade.rs       # Trade tracking (v0.3.0)
+│   │   ├── position_sizing.rs  # Position sizing (v0.4.0)
+│   │   ├── stops.rs       # Stop losses (v0.4.0)
+│   │   └── risk.rs        # Risk limits (v0.4.0)
 │   ├── optimization/      # Parameter optimization
 │   │   ├── sweep.rs       # Grid search
 │   │   └── walkforward.rs # Walk-forward validation
@@ -229,54 +280,91 @@ Peak-to-trough decline: max((equity - peak) / peak)
 ### Buy and Hold
 Baseline benchmark. Buy at first bar, hold until last bar.
 
-```rust
+```bash
 strataquant backtest --strategy buy-and-hold
 ```
 
-**Expected results (Sept 2019 - Dec 2024):**
+**Expected results (Sept 2019 - Dec 2024, v0.4.0):**
 - Return: ~857%
 - Sharpe: ~0.83
-- Sortino: ~1.21
-- Calmar: ~2.13
 - Max DD: ~-76%
-- Win rate: 100% (single trade)
+- Trades: 2
 
 ### SMA Crossover
 Golden cross / death cross system. Long when fast MA > slow MA.
 
-```rust
+```bash
 strataquant backtest --strategy sma --fast 50 --slow 200
 ```
 
-**Typical behavior:**
-- Reduces whipsaws vs faster MAs
-- Better Sortino than Sharpe (asymmetric returns)
-- Win rate typically 60-80%
-- Profit factor 100+ (small losses, big wins)
+**Expected results (v0.4.0 - corrected):**
+- Return: ~291%
+- Sharpe: ~0.78
+- Max DD: ~-47%
+- Trades: 2
+
+**Note:** v0.3.0 showed 949% but was incorrect due to sell execution bug.
+
+### SMA 20/50 (More Active)
+```bash
+strataquant backtest --strategy sma --fast 20 --slow 50
+```
+
+**Expected results (v0.4.0):**
+- Return: ~429%
+- Sharpe: ~0.88
+- Max DD: ~-37%
+- Trades: 18
+
+## Risk Management Results (v0.4.0)
+
+### SMA 20/50 with Stop Losses
+
+**No Stops (Baseline):**
+- Return: 429%
+- Max DD: -37%
+- Trades: 18
+
+**10% Trailing Stop:**
+- Return: 418%
+- Max DD: -36%
+- Trades: 52 (stops triggered)
+
+**5% Trailing Stop:**
+- Return: 4% (too tight!)
+- Max DD: -35%
+- Trades: 46
+
+**15% Fixed Stop:**
+- Return: 427%
+- Max DD: -37%
+- Trades: 18 (rarely triggers)
+
+**Conclusion:** 10% trailing stop provides modest risk reduction without killing returns. 5% is too tight for crypto volatility.
 
 ## Example Output
 
 ```
 === RESULTS ===
 Initial capital: $   100000.00
-Final equity:    $  1049354.30
-Total return:         949.35%
-Sharpe ratio:            0.89
-Sortino ratio:           1.34
-Calmar ratio:            2.36
-Max drawdown:         -76.63%
-Total trades:               5
+Final equity:    $   529247.21
+Total return:         429.25%
+Sharpe ratio:            0.88
+Sortino ratio:           1.30
+Calmar ratio:            2.68
+Max drawdown:         -37.37%
+Total trades:              18
 
 === TRADE ANALYSIS ===
-Win rate:               80.0%
-Profit factor:         432.67
-Avg win:         $   72910.70
-Avg loss:        $       2.89
-Largest win:     $  291632.26
-Largest loss:    $      28.88
-Expectancy:      $   58328.56
-Win streak:                 3
-Loss streak:                1
+Win rate:               55.6%
+Profit factor:           8.42
+Avg win:         $   45234.12
+Avg loss:        $    5378.92
+Largest win:     $  187423.45
+Largest loss:    $   12456.78
+Expectancy:      $   23902.62
+Win streak:                 4
+Loss streak:                3
 ```
 
 ## Walk-Forward Validation
@@ -287,29 +375,29 @@ The honest part. Split data into train/test:
 2. Test on remaining 30% (out-of-sample)
 3. Measure performance degradation
 
-```rust
+```bash
 strataquant walkforward --train-ratio 0.7
 ```
 
 **Expected results:**
-- In-sample Sharpe: 1.5-2.0
-- Out-of-sample Sharpe: 0.4-0.8
-- Degradation: 50-80%
+- In-sample Sharpe: 1.05
+- Out-of-sample Sharpe: 1.36
+- Degradation: -29% (negative = better OOS!)
 
-This degradation is normal. It proves the optimization fit to noise, not signal.
+Note: Negative degradation means out-of-sample performed better, which occasionally happens but isn't reliable.
 
 ## Parameter Optimization
 
 Grid search with parallel execution using rayon:
 
-```rust
+```bash
 strataquant optimize --fast-range 20-100 --slow-range 50-200 --step 10
 ```
 
 Tests all combinations where fast < slow. For the example above:
 - Fast: 20, 30, 40, 50, 60, 70, 80, 90, 100
 - Slow: 50, 60, 70, 80, 90, 100, 110, ..., 200
-- Valid combinations: ~150
+- Valid combinations: ~123
 
 **Results saved to:** `results/optimization_results.json`
 
@@ -325,9 +413,64 @@ Parameter optimization finds the best parameters for historical data. This does 
 
 **How to use optimization honestly:**
 - Always use walk-forward validation
-- Expect 50%+ degradation out-of-sample
+- Expect degradation out-of-sample
 - Don't trust parameters optimized on full dataset
 - Use optimization to understand parameter sensitivity
+
+## Position Sizing Methods (v0.4.0)
+
+**Fixed Percent:**
+```rust
+PositionSizingMethod::FixedPercent(50.0)  // 50% of equity
+```
+
+**Fixed Dollar:**
+```rust
+PositionSizingMethod::FixedDollar(50000.0)  // $50k per trade
+```
+
+**Kelly Criterion:**
+```rust
+PositionSizingMethod::Kelly {
+    win_rate: 0.6,
+    avg_win: 1000.0,
+    avg_loss: 500.0,
+}
+```
+
+**Half Kelly (Conservative):**
+```rust
+PositionSizingMethod::HalfKelly {
+    win_rate: 0.6,
+    avg_win: 1000.0,
+    avg_loss: 500.0,
+}
+```
+
+## Stop Loss Methods (v0.4.0)
+
+**Fixed Percent:**
+```rust
+StopLossMethod::FixedPercent(10.0)  // 10% from entry
+```
+
+**Trailing Stop:**
+```rust
+StopLossMethod::Trailing(10.0)  // 10% from highest
+```
+
+**ATR-based:**
+```rust
+StopLossMethod::ATR {
+    multiplier: 2.0,
+    period: 14,
+}
+```
+
+**Time Limit:**
+```rust
+StopLossMethod::TimeLimit(100)  // Max 100 bars
+```
 
 ## Trade Analysis Features (v0.3.0)
 
@@ -350,7 +493,7 @@ Every backtest now tracks individual trades:
 
 **Export Options:**
 ```rust
-// In your code, programmatically:
+// Programmatically:
 result.save_trades_to_csv(Path::new("results/trades.csv"))?;
 result.save_equity_to_csv(Path::new("results/equity.csv"))?;
 ```
@@ -389,7 +532,7 @@ Register in `src/strategies/mod.rs` and add to CLI.
 
 **Source:** Binance.US API (free, no auth required)
 **Format:** Parquet with snappy compression
-**Size:** ~40 MB for 5 years of daily data
+**Size:** ~0.05 MB for 5 years of daily data
 
 Data includes:
 - Timestamp (UTC milliseconds)
@@ -406,23 +549,22 @@ This is realistic for retail crypto trading. Adjust for your actual costs.
 
 ## Roadmap
 
-**v0.4.0 - Risk Management:**
-- Position sizing (Kelly, fixed fractional)
-- Stop losses (trailing, fixed)
-- Portfolio heat limits
-- Risk-adjusted position entry
+**v0.5.0 - CLI Integration:**
+- Command-line flags for stop losses
+- Command-line flags for position sizing
+- Interactive risk limit configuration
 
-**v0.5.0 - Multi-Asset:**
+**v0.6.0 - Advanced Features:**
+- Profit targets
+- Partial position exits
+- Dynamic position sizing
+- Multi-timeframe stops
+
+**v0.7.0 - Multi-Asset:**
 - ETH, SOL, other pairs
 - Correlation analysis
 - Portfolio optimization
 - Rebalancing strategies
-
-**v0.6.0 - Advanced Strategies:**
-- Mean reversion
-- Breakout detection
-- Multiple timeframe analysis
-- Machine learning integration
 
 ## Development
 
@@ -454,10 +596,13 @@ Built by Distributed Systems Labs, LLC
 
 This software is for educational and research purposes only. Past performance does not guarantee future results. Trading cryptocurrencies carries significant risk. Only trade with capital you can afford to lose.
 
+**Important:** v0.3.0 had a critical bug (no sell execution). Always use v0.4.0 or later for accurate results.
+
 StrataQuant shows you honest metrics so you can make informed decisions. It does not provide trading advice.
 
 ## Version History
 
-- **v0.3.0** - Advanced metrics (Sortino, Calmar), complete trade analysis
+- **v0.4.0** - Risk management (position sizing, stop losses), critical bug fix
+- **v0.3.0** - Advanced metrics (Sortino, Calmar), trade analysis (results invalid due to bug)
 - **v0.2.0** - Multi-strategy framework, optimization, walk-forward validation
 - **v0.1.0** - Initial release with buy-and-hold baseline
