@@ -560,11 +560,12 @@ This is realistic for retail crypto trading. Adjust for your actual costs.
 - Dynamic position sizing
 - Multi-timeframe stops
 
-**v0.7.0 - Multi-Asset:**
-- ETH, SOL, other pairs
-- Correlation analysis
-- Portfolio optimization
-- Rebalancing strategies
+**v0.7.0 - Multi-Asset (BTC, ETH, LTC, BCH, SOL):**
+- Support for 5 major cryptocurrencies
+- Portfolio allocation strategies (e.g., 60% BTC, 40% ETH)
+- Correlation analysis across assets
+- Portfolio rebalancing logic
+- Cross-asset performance comparison
 
 ## Development
 
