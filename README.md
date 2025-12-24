@@ -1,12 +1,20 @@
-# StrataQuant v0.2.0
+# StrataQuant v0.3.0
 
-Truth in crypto backtesting. Multi-strategy framework with honest out-of-sample validation.
+Truth in crypto backtesting. Multi-strategy framework with advanced metrics and honest out-of-sample validation.
 
 ## What This Is
 
 StrataQuant is a quantitative research engine for Bitcoin backtesting that prioritizes honesty over presentation. This tool shows real risk metrics, includes execution costs, and doesn't cherry-pick results.
 
-**v0.2.0 adds:**
+**v0.3.0 adds:**
+- Sortino ratio (downside deviation only)
+- Calmar ratio (return per unit of drawdown)
+- Complete trade tracking and analysis
+- Win rate, profit factor, expectancy
+- Win/loss streak tracking
+- CSV export for trades and equity curves
+
+**v0.2.0 added:**
 - Multi-strategy framework with pluggable Strategy trait
 - SMA crossover implementation
 - Parameter optimization with parallel execution
@@ -21,9 +29,10 @@ Most backtesting engines show you inflated returns and hide the drawdowns. Strat
 - Includes execution costs (15 bps total)
 - No parameter cherry-picking
 - Walk-forward validation exposes overfitting
-- Single unoptimized strategy as baseline
+- Complete trade analysis with win rates and streaks
+- Advanced risk metrics (Sortino, Calmar)
 
-The v0.1.0 buy-and-hold result of 857% return demonstrates the opportunity. The -76.64% drawdown demonstrates the risk. Both numbers matter.
+The v0.1.0 buy-and-hold result of 857% return demonstrates the opportunity. The -76.64% drawdown demonstrates the risk. Both numbers matter equally.
 
 ## Installation
 
@@ -82,7 +91,7 @@ Run backtest with specified strategy
 strataquant backtest [OPTIONS]
 
 Options:
-  -t, --strategy <NAME>   Strategy: buy-and-hold, sma (default: buy-and-hold)
+  -t, --strategy <n>      Strategy: buy-and-hold, sma (default: buy-and-hold)
   -f, --fast <PERIOD>     Fast SMA period (default: 50)
   -w, --slow <PERIOD>     Slow SMA period (default: 200)
   -c, --capital <USD>     Initial capital (default: 100000)
@@ -146,12 +155,15 @@ strataquant/
 │   ├── backtest/          # Backtesting engine
 │   │   ├── engine.rs      # Core backtest logic
 │   │   ├── types.rs       # Portfolio & execution
-│   │   └── result.rs      # Result serialization
+│   │   ├── result.rs      # Result serialization
+│   │   └── trade.rs       # Trade tracking (v0.3.0)
 │   ├── optimization/      # Parameter optimization
 │   │   ├── sweep.rs       # Grid search
 │   │   └── walkforward.rs # Walk-forward validation
 │   ├── metrics/           # Performance metrics
 │   │   ├── sharpe.rs      # Sharpe ratio
+│   │   ├── sortino.rs     # Sortino ratio (v0.3.0)
+│   │   ├── calmar.rs      # Calmar ratio (v0.3.0)
 │   │   └── drawdown.rs    # Maximum drawdown
 │   ├── lib.rs             # Library exports
 │   └── main.rs            # CLI interface
@@ -170,11 +182,47 @@ Risk-adjusted return: (mean_return / std_dev) * sqrt(252)
 - Above 2.0 is excellent
 - Above 3.0 is suspicious (check for overfitting)
 
+### Sortino Ratio (v0.3.0)
+Downside risk-adjusted return: (mean_return / downside_deviation) * sqrt(252)
+- Only penalizes downside volatility (better for asymmetric strategies)
+- Higher than Sharpe indicates positive skew
+- Above 1.5 is good
+- Above 2.5 is excellent
+
+### Calmar Ratio (v0.3.0)
+Return per unit of max drawdown: annualized_return / |max_drawdown|
+- Measures return efficiency relative to worst loss
+- Above 1.0 is acceptable
+- Above 2.0 is good
+- Above 3.0 is excellent
+
 ### Maximum Drawdown
 Peak-to-trough decline: max((equity - peak) / peak)
 - Always negative
 - -50% means you lost half your equity at worst point
 - Critical for position sizing
+
+### Trade Analysis (v0.3.0)
+
+**Win Rate**: Percentage of profitable trades
+- 50%+ is baseline for trend-following
+- 60%+ is good
+- 70%+ is exceptional (or overfit)
+
+**Profit Factor**: Total wins / Total losses
+- 1.0 = break even
+- 1.5+ = profitable
+- 2.0+ = good
+- 3.0+ = excellent
+
+**Expectancy**: Average profit per trade
+- Positive = profitable system
+- Higher is better
+- Accounts for win rate and avg win/loss
+
+**Streaks**: Longest consecutive wins/losses
+- Important for psychological resilience
+- Longer loss streaks require more capital reserves
 
 ## Strategy Implementations
 
@@ -187,8 +235,11 @@ strataquant backtest --strategy buy-and-hold
 
 **Expected results (Sept 2019 - Dec 2024):**
 - Return: ~857%
-- Sharpe: ~0.99
+- Sharpe: ~0.83
+- Sortino: ~1.21
+- Calmar: ~2.13
 - Max DD: ~-76%
+- Win rate: 100% (single trade)
 
 ### SMA Crossover
 Golden cross / death cross system. Long when fast MA > slow MA.
@@ -198,9 +249,35 @@ strataquant backtest --strategy sma --fast 50 --slow 200
 ```
 
 **Typical behavior:**
-- Reduces drawdowns vs buy-and-hold
-- Lower returns due to whipsaws
-- Performance highly sensitive to parameters
+- Reduces whipsaws vs faster MAs
+- Better Sortino than Sharpe (asymmetric returns)
+- Win rate typically 60-80%
+- Profit factor 100+ (small losses, big wins)
+
+## Example Output
+
+```
+=== RESULTS ===
+Initial capital: $   100000.00
+Final equity:    $  1049354.30
+Total return:         949.35%
+Sharpe ratio:            0.89
+Sortino ratio:           1.34
+Calmar ratio:            2.36
+Max drawdown:         -76.63%
+Total trades:               5
+
+=== TRADE ANALYSIS ===
+Win rate:               80.0%
+Profit factor:         432.67
+Avg win:         $   72910.70
+Avg loss:        $       2.89
+Largest win:     $  291632.26
+Largest loss:    $      28.88
+Expectancy:      $   58328.56
+Win streak:                 3
+Loss streak:                1
+```
 
 ## Walk-Forward Validation
 
@@ -251,6 +328,32 @@ Parameter optimization finds the best parameters for historical data. This does 
 - Expect 50%+ degradation out-of-sample
 - Don't trust parameters optimized on full dataset
 - Use optimization to understand parameter sensitivity
+
+## Trade Analysis Features (v0.3.0)
+
+Every backtest now tracks individual trades:
+
+**Captured Data:**
+- Entry/exit timestamps and prices
+- Position size
+- Profit/loss ($ and %)
+- Duration (bars and days)
+- Win/loss classification
+
+**Calculated Statistics:**
+- Win rate (% profitable trades)
+- Profit factor (wins/losses ratio)
+- Average win and loss sizes
+- Largest win and loss
+- Expectancy (expected value per trade)
+- Longest winning/losing streaks
+
+**Export Options:**
+```rust
+// In your code, programmatically:
+result.save_trades_to_csv(Path::new("results/trades.csv"))?;
+result.save_equity_to_csv(Path::new("results/equity.csv"))?;
+```
 
 ## Adding New Strategies
 
@@ -303,21 +406,23 @@ This is realistic for retail crypto trading. Adjust for your actual costs.
 
 ## Roadmap
 
-**v0.3.0 - Advanced Metrics:**
-- Calmar ratio
-- Sortino ratio
-- Win rate / profit factor
-- Trade analysis (avg win, avg loss, longest streak)
-
 **v0.4.0 - Risk Management:**
 - Position sizing (Kelly, fixed fractional)
-- Stop losses
+- Stop losses (trailing, fixed)
 - Portfolio heat limits
+- Risk-adjusted position entry
 
 **v0.5.0 - Multi-Asset:**
 - ETH, SOL, other pairs
 - Correlation analysis
 - Portfolio optimization
+- Rebalancing strategies
+
+**v0.6.0 - Advanced Strategies:**
+- Mean reversion
+- Breakout detection
+- Multiple timeframe analysis
+- Machine learning integration
 
 ## Development
 
@@ -350,3 +455,9 @@ Built by Distributed Systems Labs, LLC
 This software is for educational and research purposes only. Past performance does not guarantee future results. Trading cryptocurrencies carries significant risk. Only trade with capital you can afford to lose.
 
 StrataQuant shows you honest metrics so you can make informed decisions. It does not provide trading advice.
+
+## Version History
+
+- **v0.3.0** - Advanced metrics (Sortino, Calmar), complete trade analysis
+- **v0.2.0** - Multi-strategy framework, optimization, walk-forward validation
+- **v0.1.0** - Initial release with buy-and-hold baseline
