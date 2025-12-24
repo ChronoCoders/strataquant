@@ -1,242 +1,97 @@
 use crate::data::types::OHLCV;
-use chrono::{DateTime, Utc};
+use anyhow::{Context, Result};
+use chrono::{DateTime, Duration, Utc};
 use reqwest::blocking::Client;
 use serde::Deserialize;
-use std::thread::sleep;
-use std::time::Duration;
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum DataError {
-    #[error("API request failed: {0}")]
-    ApiError(String),
-
-    #[error("Network error: {0}")]
-    NetworkError(String),
-
-    #[error("Failed to parse {0}: {1}")]
-    ParseError(String, String),
-
-    #[error("Invalid data: {0}")]
-    ValidationError(String),
-}
 
 #[derive(Debug, Deserialize)]
-struct BinanceKline {
-    #[serde(rename = "0")]
-    open_time: i64,
-    #[serde(rename = "1")]
-    open: String,
-    #[serde(rename = "2")]
-    high: String,
-    #[serde(rename = "3")]
-    low: String,
-    #[serde(rename = "4")]
-    close: String,
-    #[serde(rename = "5")]
-    volume: String,
-}
+#[allow(dead_code)]
+struct BinanceKline(
+    i64,    // Open time
+    String, // Open
+    String, // High
+    String, // Low
+    String, // Close
+    String, // Volume
+    i64,    // Close time
+    String, // Quote asset volume
+    u64,    // Number of trades
+    String, // Taker buy base asset volume
+    String, // Taker buy quote asset volume
+    String, // Ignore
+);
 
 pub struct BinanceDownloader {
     client: Client,
     symbol: String,
     interval: String,
-    max_retries: u32,
-    api_base: String,
 }
 
 impl BinanceDownloader {
     pub fn new(symbol: &str, interval: &str) -> Self {
         Self {
-            client: Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .unwrap(),
+            client: Client::new(),
             symbol: symbol.to_string(),
             interval: interval.to_string(),
-            max_retries: 3,
-            api_base: "https://api.binance.us".to_string(),
         }
     }
 
-    pub fn fetch_range(
-        &self,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-    ) -> Result<Vec<OHLCV>, DataError> {
+    pub fn fetch_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<Vec<OHLCV>> {
         let mut all_data = Vec::new();
         let mut current = start;
 
-        let interval_ms = self.interval_to_milliseconds();
-        let chunk_ms = interval_ms * 1000;
+        let chunk_size = match self.interval.as_str() {
+            "1d" => Duration::days(1000),
+            "1h" => Duration::hours(1000),
+            "5m" => Duration::minutes(5000),
+            "1m" => Duration::minutes(1000),
+            _ => Duration::days(1000),
+        };
 
-        let total_ms = (end.timestamp_millis() - start.timestamp_millis()) as u64;
-        let total_chunks = (total_ms as f64 / chunk_ms as f64).ceil() as usize;
-
-        println!(
-            "Downloading {} chunks of up to 1000 candles each",
-            total_chunks
-        );
-
-        let mut chunk_count = 0;
+        println!("Fetching data in chunks...");
 
         while current < end {
-            chunk_count += 1;
+            let chunk_end = (current + chunk_size).min(end);
 
-            let chunk_end_ms = current.timestamp_millis() + chunk_ms as i64;
-            let chunk_end = DateTime::from_timestamp_millis(chunk_end_ms)
-                .unwrap_or(end)
-                .min(end);
+            let url = format!(
+                "https://api.binance.us/api/v3/klines?symbol={}&interval={}&startTime={}&endTime={}&limit=1000",
+                self.symbol,
+                self.interval,
+                current.timestamp_millis(),
+                chunk_end.timestamp_millis()
+            );
 
-            let klines = self.fetch_chunk_with_retry(current, chunk_end)?;
+            let response: Vec<BinanceKline> = self
+                .client
+                .get(&url)
+                .send()
+                .context("Failed to fetch data from Binance")?
+                .json()
+                .context("Failed to parse response")?;
 
-            if klines.is_empty() {
-                println!("No more data available at {}", current);
+            if response.is_empty() {
                 break;
             }
 
-            for kline in klines {
-                let ohlcv = OHLCV {
-                    timestamp: kline.open_time,
-                    open: kline
-                        .open
-                        .parse()
-                        .map_err(|e| DataError::ParseError("open".into(), format!("{}", e)))?,
-                    high: kline
-                        .high
-                        .parse()
-                        .map_err(|e| DataError::ParseError("high".into(), format!("{}", e)))?,
-                    low: kline
-                        .low
-                        .parse()
-                        .map_err(|e| DataError::ParseError("low".into(), format!("{}", e)))?,
-                    close: kline
-                        .close
-                        .parse()
-                        .map_err(|e| DataError::ParseError("close".into(), format!("{}", e)))?,
-                    volume: kline
-                        .volume
-                        .parse()
-                        .map_err(|e| DataError::ParseError("volume".into(), format!("{}", e)))?,
-                };
+            print!(".");
+            std::io::Write::flush(&mut std::io::stdout()).unwrap();
 
-                if !ohlcv.is_valid() {
-                    return Err(DataError::ValidationError(format!(
-                        "Invalid OHLCV at timestamp {}",
-                        ohlcv.timestamp
-                    )));
-                }
-
-                all_data.push(ohlcv);
+            for kline in response {
+                all_data.push(OHLCV::new(
+                    kline.0,
+                    kline.1.parse().context("Failed to parse open price")?,
+                    kline.2.parse().context("Failed to parse high price")?,
+                    kline.3.parse().context("Failed to parse low price")?,
+                    kline.4.parse().context("Failed to parse close price")?,
+                    kline.5.parse().context("Failed to parse volume")?,
+                ));
             }
 
             current = chunk_end;
-
-            if chunk_count % 10 == 0 {
-                println!(
-                    "Progress: {}/{} chunks ({:.1}%)",
-                    chunk_count,
-                    total_chunks,
-                    (chunk_count as f64 / total_chunks as f64) * 100.0
-                );
-            }
-
-            sleep(Duration::from_millis(100));
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
-        println!("Downloaded {} total candles", all_data.len());
+        println!();
         Ok(all_data)
-    }
-
-    fn fetch_chunk_with_retry(
-        &self,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-    ) -> Result<Vec<BinanceKline>, DataError> {
-        let mut attempts = 0;
-
-        loop {
-            attempts += 1;
-
-            let url = format!(
-                "{}/api/v3/klines?symbol={}&interval={}&startTime={}&endTime={}&limit=1000",
-                self.api_base,
-                self.symbol,
-                self.interval,
-                start.timestamp_millis(),
-                end.timestamp_millis()
-            );
-
-            match self.client.get(&url).send() {
-                Ok(response) => {
-                    if response.status().is_success() {
-                        match response.json::<Vec<Vec<serde_json::Value>>>() {
-                            Ok(raw_klines) => {
-                                let mut klines = Vec::new();
-                                for raw in raw_klines {
-                                    if raw.len() >= 6 {
-                                        let kline = BinanceKline {
-                                            open_time: raw[0].as_i64().unwrap_or(0),
-                                            open: raw[1].as_str().unwrap_or("0").to_string(),
-                                            high: raw[2].as_str().unwrap_or("0").to_string(),
-                                            low: raw[3].as_str().unwrap_or("0").to_string(),
-                                            close: raw[4].as_str().unwrap_or("0").to_string(),
-                                            volume: raw[5].as_str().unwrap_or("0").to_string(),
-                                        };
-                                        klines.push(kline);
-                                    }
-                                }
-                                return Ok(klines);
-                            }
-                            Err(e) => {
-                                if attempts >= self.max_retries {
-                                    return Err(DataError::ApiError(format!(
-                                        "JSON parse failed after {} attempts: {}",
-                                        attempts, e
-                                    )));
-                                }
-                                println!("JSON parse error, retrying... (attempt {})", attempts);
-                                sleep(Duration::from_secs(1));
-                            }
-                        }
-                    } else {
-                        let status = response.status();
-                        let body = response.text().unwrap_or_default();
-
-                        if attempts >= self.max_retries {
-                            return Err(DataError::ApiError(format!(
-                                "HTTP {} after {} attempts: {}",
-                                status, attempts, body
-                            )));
-                        }
-
-                        println!("HTTP error {}, retrying... (attempt {})", status, attempts);
-                        sleep(Duration::from_secs(2));
-                    }
-                }
-                Err(e) => {
-                    if attempts >= self.max_retries {
-                        return Err(DataError::NetworkError(format!(
-                            "Request failed after {} attempts: {}",
-                            attempts, e
-                        )));
-                    }
-                    println!("Network error, retrying... (attempt {})", attempts);
-                    sleep(Duration::from_secs(2));
-                }
-            }
-        }
-    }
-
-    fn interval_to_milliseconds(&self) -> u64 {
-        match self.interval.as_str() {
-            "1m" => 60_000,
-            "5m" => 300_000,
-            "15m" => 900_000,
-            "1h" => 3_600_000,
-            "4h" => 14_400_000,
-            "1d" => 86_400_000,
-            _ => panic!("Unsupported interval: {}", self.interval),
-        }
     }
 }

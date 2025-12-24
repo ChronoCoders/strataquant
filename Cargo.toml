@@ -1,13 +1,22 @@
 [package]
 name = "strataquant"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
-polars = { version = "0.36", features = ["lazy", "parquet", "dtype-datetime"] }
-reqwest = { version = "0.11", features = ["blocking", "json"] }
+polars = { version = "0.44", features = ["lazy", "parquet", "dtype-date"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+clap = { version = "4.5", features = ["derive"] }
 chrono = "0.4"
-thiserror = "1.0"
-clap = { version = "4.4", features = ["derive"] }
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+anyhow = "1.0"
+rayon = "1.10"
+
+[lib]
+name = "strataquant"
+path = "src/lib.rs"
+
+[[bin]]
+name = "strataquant"
+path = "src/main.rs"

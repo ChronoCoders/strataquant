@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BacktestResult {
@@ -12,7 +13,10 @@ pub struct BacktestResult {
 }
 
 impl BacktestResult {
-    pub fn save_to_file(&self, path: &std::path::Path) -> Result<(), std::io::Error> {
+    pub fn save_to_file(&self, path: &Path) -> Result<(), std::io::Error> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         let json = serde_json::to_string_pretty(self)?;
         std::fs::write(path, json)?;
         Ok(())

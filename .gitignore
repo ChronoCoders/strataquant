@@ -1,8 +1,40 @@
+# Rust
 /target/
-/data/processed/*.parquet
-/data/raw/
-/results/backtests/*.json
 Cargo.lock
-*.json
-!results/.gitkeep
-!data/.gitkeep
+**/*.rs.bk
+*.pdb
+
+# Data files
+/data/processed/*.parquet
+/data/processed/*.csv
+/data/processed/*.json
+
+# Results
+/results/**/*.json
+/results/**/*.csv
+
+# Keep directory structure
+!/data/processed/.gitkeep
+!/results/backtests/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Python (if adding Python bindings later)
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.env
+venv/
