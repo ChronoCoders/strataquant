@@ -13,10 +13,10 @@ pub struct BacktestResult {
     pub sortino_ratio: f64,
     pub calmar_ratio: f64,
     pub max_drawdown: f64,
-    
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trades: Option<Vec<Trade>>,
-    
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trade_stats: Option<TradeStats>,
 }
@@ -52,7 +52,7 @@ impl BacktestResult {
 
         if let Some(trades) = &self.trades {
             let mut csv = String::from("trade_num,entry_timestamp,exit_timestamp,entry_price,exit_price,position_size,pnl,pnl_pct,duration_days,is_win\n");
-            
+
             for (i, trade) in trades.iter().enumerate() {
                 csv.push_str(&format!(
                     "{},{},{},{:.2},{:.2},{:.8},{:.2},{:.4},{:.1},{}\n",

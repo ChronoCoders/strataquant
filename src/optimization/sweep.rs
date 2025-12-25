@@ -1,4 +1,4 @@
-use crate::backtest::{BacktestEngine, ExecutionModel};
+use crate::backtest::{BacktestEngine, ExecutionModel, StopLossMethod};
 use crate::data::OHLCV;
 use crate::strategies::SMACrossover;
 use rayon::prelude::*;
@@ -48,7 +48,10 @@ impl ParameterSweep {
             }
         }
 
-        println!("Testing {} parameter combinations...", parameter_combinations.len());
+        println!(
+            "Testing {} parameter combinations...",
+            parameter_combinations.len()
+        );
 
         let results: Vec<OptimizationResult> = parameter_combinations
             .par_iter()
@@ -59,6 +62,52 @@ impl ParameterSweep {
                     self.initial_capital,
                     self.execution_model.clone(),
                 );
+                let backtest_result = engine.run(&strategy);
+
+                OptimizationResult {
+                    fast_period: *fast,
+                    slow_period: *slow,
+                    total_return: backtest_result.total_return,
+                    sharpe_ratio: backtest_result.sharpe_ratio,
+                    max_drawdown: backtest_result.max_drawdown,
+                    total_trades: backtest_result.total_trades,
+                }
+            })
+            .collect();
+
+        results
+    }
+
+    pub fn sweep_sma_periods_with_stops(
+        &self,
+        fast_range: (usize, usize),
+        slow_range: (usize, usize),
+        step: usize,
+        stop_loss: StopLossMethod,
+    ) -> Vec<OptimizationResult> {
+        let fast_periods: Vec<usize> = (fast_range.0..=fast_range.1).step_by(step).collect();
+        let slow_periods: Vec<usize> = (slow_range.0..=slow_range.1).step_by(step).collect();
+
+        let mut parameter_combinations = Vec::new();
+        for fast in &fast_periods {
+            for slow in &slow_periods {
+                if fast < slow {
+                    parameter_combinations.push((*fast, *slow));
+                }
+            }
+        }
+
+        let results: Vec<OptimizationResult> = parameter_combinations
+            .par_iter()
+            .map(|(fast, slow)| {
+                let strategy = SMACrossover::new(*fast, *slow);
+                let engine = BacktestEngine::new(
+                    self.data.clone(),
+                    self.initial_capital,
+                    self.execution_model.clone(),
+                )
+                .with_stop_loss(stop_loss.clone());
+
                 let backtest_result = engine.run(&strategy);
 
                 OptimizationResult {

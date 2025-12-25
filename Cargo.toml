@@ -1,7 +1,13 @@
 [package]
 name = "strataquant"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
+authors = ["Altug Tatlisu <altug@dslabs.network>"]
+description = "Truth in crypto backtesting - Production-grade backtesting engine with honest metrics"
+repository = "https://github.com/ChronoCoders/strataquant"
+license = "MIT"
+keywords = ["cryptocurrency", "backtesting", "trading", "bitcoin", "quantitative"]
+categories = ["finance", "simulation"]
 
 [dependencies]
 polars = { version = "0.44", features = ["lazy", "parquet", "dtype-date"] }

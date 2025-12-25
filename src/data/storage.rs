@@ -32,8 +32,8 @@ pub fn save_to_parquet(data: &[OHLCV], path: &Path) -> Result<()> {
 }
 
 pub fn load_from_parquet(path: &Path) -> Result<Vec<OHLCV>> {
-    let file = std::fs::File::open(path)
-        .context(format!("Failed to open file: {}", path.display()))?;
+    let file =
+        std::fs::File::open(path).context(format!("Failed to open file: {}", path.display()))?;
 
     let df = ParquetReader::new(file)
         .finish()

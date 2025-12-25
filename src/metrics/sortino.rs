@@ -1,8 +1,8 @@
 /// Calculate Sortino ratio: return / downside deviation
-/// 
+///
 /// Similar to Sharpe ratio but only penalizes downside volatility.
 /// Higher is better. Above 1.0 is good, above 2.0 is excellent.
-/// 
+///
 /// Sortino is more useful than Sharpe for asymmetric return distributions
 /// (common in trading where upside is unlimited but downside is limited by stops).
 pub fn calculate_sortino_ratio(returns: &[f64], periods_per_year: f64) -> f64 {
@@ -13,22 +13,15 @@ pub fn calculate_sortino_ratio(returns: &[f64], periods_per_year: f64) -> f64 {
     let mean_return = returns.iter().sum::<f64>() / returns.len() as f64;
 
     // Only consider negative returns for downside deviation
-    let downside_returns: Vec<f64> = returns
-        .iter()
-        .filter(|&&r| r < 0.0)
-        .copied()
-        .collect();
+    let downside_returns: Vec<f64> = returns.iter().filter(|&&r| r < 0.0).copied().collect();
 
     if downside_returns.is_empty() {
         // No negative returns = infinite Sortino (cap at 999.0)
         return 999.0;
     }
 
-    let downside_variance = downside_returns
-        .iter()
-        .map(|&r| r.powi(2))
-        .sum::<f64>()
-        / returns.len() as f64; // Note: divide by total returns, not just downside
+    let downside_variance =
+        downside_returns.iter().map(|&r| r.powi(2)).sum::<f64>() / returns.len() as f64; // Note: divide by total returns, not just downside
 
     let downside_deviation = downside_variance.sqrt();
 

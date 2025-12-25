@@ -5,16 +5,24 @@ use serde::{Deserialize, Serialize};
 pub enum PositionSizingMethod {
     /// Fixed dollar amount per trade
     FixedDollar(f64),
-    
+
     /// Fixed percentage of equity per trade
     FixedPercent(f64),
-    
+
     /// Kelly Criterion (aggressive)
-    Kelly { win_rate: f64, avg_win: f64, avg_loss: f64 },
-    
+    Kelly {
+        win_rate: f64,
+        avg_win: f64,
+        avg_loss: f64,
+    },
+
     /// Half Kelly (more conservative)
-    HalfKelly { win_rate: f64, avg_win: f64, avg_loss: f64 },
-    
+    HalfKelly {
+        win_rate: f64,
+        avg_win: f64,
+        avg_loss: f64,
+    },
+
     /// Fixed Fractional (risk-based)
     FixedFractional { risk_per_trade: f64 },
 }
@@ -30,21 +38,27 @@ impl PositionSizingMethod {
                     *amount
                 }
             }
-            
-            PositionSizingMethod::FixedPercent(percent) => {
-                equity * (percent / 100.0)
-            }
-            
-            PositionSizingMethod::Kelly { win_rate, avg_win, avg_loss } => {
+
+            PositionSizingMethod::FixedPercent(percent) => equity * (percent / 100.0),
+
+            PositionSizingMethod::Kelly {
+                win_rate,
+                avg_win,
+                avg_loss,
+            } => {
                 let kelly = Self::kelly_criterion(*win_rate, *avg_win, *avg_loss);
                 (equity * kelly).min(equity)
             }
-            
-            PositionSizingMethod::HalfKelly { win_rate, avg_win, avg_loss } => {
+
+            PositionSizingMethod::HalfKelly {
+                win_rate,
+                avg_win,
+                avg_loss,
+            } => {
                 let kelly = Self::kelly_criterion(*win_rate, *avg_win, *avg_loss);
                 (equity * kelly * 0.5).min(equity)
             }
-            
+
             PositionSizingMethod::FixedFractional { risk_per_trade } => {
                 if let Some(risk) = risk_amount {
                     let max_loss = equity * (risk_per_trade / 100.0);
@@ -59,20 +73,20 @@ impl PositionSizingMethod {
             }
         }
     }
-    
+
     /// Kelly Criterion formula: (W * R - L) / R
     /// W = win probability, R = avg_win/avg_loss, L = loss probability
     fn kelly_criterion(win_rate: f64, avg_win: f64, avg_loss: f64) -> f64 {
         if avg_loss == 0.0 {
             return 0.25; // Default conservative sizing if no losses
         }
-        
+
         let win_prob = win_rate;
         let loss_prob = 1.0 - win_rate;
         let win_loss_ratio = avg_win / avg_loss;
-        
+
         let kelly = (win_prob * win_loss_ratio - loss_prob) / win_loss_ratio;
-        
+
         // Cap Kelly at 25% to prevent over-leveraging
         kelly.clamp(0.0, 0.25)
     }
