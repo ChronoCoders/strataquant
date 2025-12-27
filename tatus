@@ -1,5 +1,0 @@
-[33m40eb3b1[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;33mtag: [m[1;33mv0.4.0[m[33m, [m[1;31morigin/main[m[33m)[m Release v0.4.0: Risk management - position sizing, stop losses, risk limits
-[33m6833611[m docs: Update README and CHANGELOG for v0.3.0
-[33m7bae43c[m[33m ([m[1;33mtag: [m[1;33mv0.3.0[m[33m)[m Release v0.3.0: Advanced metrics and trade analysis
-[33m54fa442[m Add v0.2.0 release notes
-[33m28a2006[m[33m ([m[1;33mtag: [m[1;33mv0.2.0[m[33m)[m Release v0.2.0: Multi-strategy framework with honest validation

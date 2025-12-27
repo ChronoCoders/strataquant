@@ -1,24 +1,11 @@
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 use std::path::Path;
-use strataquant::backtest::{
-    BacktestEngine, ExecutionModel, PositionSizingMethod, RiskLimits, StopLossMethod,
-};
+use strataquant::backtest::{BacktestEngine, ExecutionModel};
 use strataquant::data::{load_from_parquet, save_to_parquet, BinanceDownloader};
 use strataquant::optimization::{ParameterSweep, WalkForward};
+use strataquant::plotting;
 use strataquant::strategies::{BuyAndHold, SMACrossover};
-
-// Helper struct to group risk management parameters
-struct RiskConfig {
-    stop_type: String,
-    stop_pct: f64,
-    atr_multiplier: f64,
-    atr_period: usize,
-    time_limit: usize,
-    position_sizing: String,
-    position_size: f64,
-    max_drawdown: f64,
-}
 
 #[derive(Parser)]
 #[command(name = "strataquant")]
@@ -71,37 +58,9 @@ enum Commands {
         #[arg(short = 'l', long, default_value = "5")]
         slippage: f64,
 
-        /// Stop loss type: none, fixed, trailing, atr, time
-        #[arg(long, default_value = "none")]
-        stop_type: String,
-
-        /// Stop loss percentage (for fixed/trailing)
-        #[arg(long, default_value = "10.0")]
-        stop_pct: f64,
-
-        /// ATR multiplier (for atr stop type)
-        #[arg(long, default_value = "2.0")]
-        atr_multiplier: f64,
-
-        /// ATR period (for atr stop type)
-        #[arg(long, default_value = "14")]
-        atr_period: usize,
-
-        /// Time limit in bars (for time stop type)
-        #[arg(long, default_value = "100")]
-        time_limit: usize,
-
-        /// Position sizing method: fixed-pct, fixed-dollar, kelly, half-kelly
-        #[arg(long, default_value = "fixed-pct")]
-        position_sizing: String,
-
-        /// Position size (percentage or dollar amount depending on method)
-        #[arg(long, default_value = "100.0")]
-        position_size: f64,
-
-        /// Maximum drawdown threshold (stop trading at -X%)
-        #[arg(long, default_value = "50.0")]
-        max_drawdown: f64,
+        /// Generate equity and drawdown charts
+        #[arg(long)]
+        plot: bool,
     },
 
     /// Optimize SMA parameters with grid search
@@ -129,22 +88,6 @@ enum Commands {
         /// Slippage in basis points
         #[arg(short = 'l', long, default_value = "5")]
         slippage: f64,
-
-        /// Stop loss type: none, fixed, trailing, atr
-        #[arg(long, default_value = "none")]
-        stop_type: String,
-
-        /// Stop loss percentage (for fixed/trailing)
-        #[arg(long, default_value = "10.0")]
-        stop_pct: f64,
-
-        /// ATR multiplier (for atr stop type)
-        #[arg(long, default_value = "2.0")]
-        atr_multiplier: f64,
-
-        /// ATR period (for atr stop type)
-        #[arg(long, default_value = "14")]
-        atr_period: usize,
     },
 
     /// Walk-forward validation
@@ -164,22 +107,6 @@ enum Commands {
         /// Slippage in basis points
         #[arg(short = 'l', long, default_value = "5")]
         slippage: f64,
-
-        /// Stop loss type: none, fixed, trailing, atr
-        #[arg(long, default_value = "none")]
-        stop_type: String,
-
-        /// Stop loss percentage (for fixed/trailing)
-        #[arg(long, default_value = "10.0")]
-        stop_pct: f64,
-
-        /// ATR multiplier (for atr stop type)
-        #[arg(long, default_value = "2.0")]
-        atr_multiplier: f64,
-
-        /// ATR period (for atr stop type)
-        #[arg(long, default_value = "14")]
-        atr_period: usize,
     },
 
     /// Compare all strategies
@@ -195,22 +122,6 @@ enum Commands {
         /// Slippage in basis points
         #[arg(short = 'l', long, default_value = "5")]
         slippage: f64,
-
-        /// Stop loss type: none, fixed, trailing, atr
-        #[arg(long, default_value = "none")]
-        stop_type: String,
-
-        /// Stop loss percentage (for fixed/trailing)
-        #[arg(long, default_value = "10.0")]
-        stop_pct: f64,
-
-        /// ATR multiplier (for atr stop type)
-        #[arg(long, default_value = "2.0")]
-        atr_multiplier: f64,
-
-        /// ATR period (for atr stop type)
-        #[arg(long, default_value = "14")]
-        atr_period: usize,
     },
 }
 
@@ -232,33 +143,9 @@ fn main() {
             capital,
             commission,
             slippage,
-            stop_type,
-            stop_pct,
-            atr_multiplier,
-            atr_period,
-            time_limit,
-            position_sizing,
-            position_size,
-            max_drawdown,
+            plot,
         } => {
-            run_backtest(
-                &strategy,
-                fast,
-                slow,
-                capital,
-                commission,
-                slippage,
-                RiskConfig {
-                    stop_type,
-                    stop_pct,
-                    atr_multiplier,
-                    atr_period,
-                    time_limit,
-                    position_sizing,
-                    position_size,
-                    max_drawdown,
-                },
-            );
+            run_backtest(&strategy, fast, slow, capital, commission, slippage, plot);
         }
         Commands::Optimize {
             fast_range,
@@ -267,20 +154,14 @@ fn main() {
             capital,
             commission,
             slippage,
-            stop_type,
-            stop_pct,
-            atr_multiplier,
-            atr_period,
         } => {
-            let execution_model = ExecutionModel::new(commission, slippage);
-            let stop_loss = parse_stop_loss(&stop_type, stop_pct, atr_multiplier, atr_period);
             run_optimization(
                 &fast_range,
                 &slow_range,
                 step,
                 capital,
-                execution_model,
-                stop_loss,
+                commission,
+                slippage,
             );
         }
         Commands::Walkforward {
@@ -288,27 +169,15 @@ fn main() {
             capital,
             commission,
             slippage,
-            stop_type,
-            stop_pct,
-            atr_multiplier,
-            atr_period,
         } => {
-            let execution_model = ExecutionModel::new(commission, slippage);
-            let stop_loss = parse_stop_loss(&stop_type, stop_pct, atr_multiplier, atr_period);
-            run_walkforward(train_ratio, capital, execution_model, stop_loss);
+            run_walkforward(train_ratio, capital, commission, slippage);
         }
         Commands::Compare {
             capital,
             commission,
             slippage,
-            stop_type,
-            stop_pct,
-            atr_multiplier,
-            atr_period,
         } => {
-            let execution_model = ExecutionModel::new(commission, slippage);
-            let stop_loss = parse_stop_loss(&stop_type, stop_pct, atr_multiplier, atr_period);
-            run_comparison(capital, execution_model, stop_loss);
+            run_comparison(capital, commission, slippage);
         }
     }
 }
@@ -360,29 +229,6 @@ fn download_data(start: &str, end: &str, interval: &str) {
     }
 }
 
-// Helper function to parse stop loss method from CLI args
-fn parse_stop_loss(
-    stop_type: &str,
-    stop_pct: f64,
-    atr_multiplier: f64,
-    atr_period: usize,
-) -> StopLossMethod {
-    match stop_type {
-        "none" => StopLossMethod::None,
-        "fixed" => StopLossMethod::FixedPercent(stop_pct),
-        "trailing" => StopLossMethod::Trailing(stop_pct),
-        "atr" => StopLossMethod::ATR {
-            multiplier: atr_multiplier,
-            period: atr_period,
-        },
-        _ => {
-            eprintln!("Unknown stop type: {}", stop_type);
-            eprintln!("Available: none, fixed, trailing, atr");
-            std::process::exit(1);
-        }
-    }
-}
-
 fn run_backtest(
     strategy_name: &str,
     fast: usize,
@@ -390,7 +236,7 @@ fn run_backtest(
     capital: f64,
     commission: f64,
     slippage: f64,
-    risk_config: RiskConfig,
+    plot: bool,
 ) {
     println!("StrataQuant - Backtest");
     println!("======================\n");
@@ -421,12 +267,12 @@ fn run_backtest(
 
     let execution_model = ExecutionModel::new(commission, slippage);
 
-    let (strategy_display, output_filename): (Box<dyn strataquant::strategies::Strategy>, String) =
+    let (strategy_display, output_filename): (Box<dyn strataquant::strategies::Strategy>, &str) =
         match strategy_name {
-            "buy-and-hold" => (Box::new(BuyAndHold::new()), "buy_and_hold.json".to_string()),
+            "buy-and-hold" => (Box::new(BuyAndHold::new()), "buy_and_hold.json"),
             "sma" => (
                 Box::new(SMACrossover::new(fast, slow)),
-                format!("sma_{}_{}.json", fast, slow),
+                &format!("sma_{}_{}.json", fast, slow),
             ),
             _ => {
                 eprintln!("Unknown strategy: {}", strategy_name);
@@ -439,74 +285,9 @@ fn run_backtest(
     println!("Description: {}", strategy_display.description());
     println!("Initial capital: ${:.2}", capital);
     println!("Commission: {} bps", commission);
-    println!("Slippage: {} bps", slippage);
+    println!("Slippage: {} bps\n", slippage);
 
-    // Parse stop loss method (including time limit for backtest)
-    let stop_loss = match risk_config.stop_type.as_str() {
-        "none" => StopLossMethod::None,
-        "fixed" => StopLossMethod::FixedPercent(risk_config.stop_pct),
-        "trailing" => StopLossMethod::Trailing(risk_config.stop_pct),
-        "atr" => StopLossMethod::ATR {
-            multiplier: risk_config.atr_multiplier,
-            period: risk_config.atr_period,
-        },
-        "time" => StopLossMethod::TimeLimit(risk_config.time_limit),
-        _ => {
-            eprintln!("Unknown stop type: {}", risk_config.stop_type);
-            eprintln!("Available: none, fixed, trailing, atr, time");
-            std::process::exit(1);
-        }
-    };
-
-    // Parse position sizing method
-    let position_sizing = match risk_config.position_sizing.as_str() {
-        "fixed-pct" => PositionSizingMethod::FixedPercent(risk_config.position_size),
-        "fixed-dollar" => PositionSizingMethod::FixedDollar(risk_config.position_size),
-        _ => {
-            eprintln!("Unknown position sizing: {}", risk_config.position_sizing);
-            eprintln!("Available: fixed-pct, fixed-dollar");
-            std::process::exit(1);
-        }
-    };
-
-    // Create risk limits only if user changed defaults
-    let risk_limits = if risk_config.max_drawdown < 50.0 {
-        Some(RiskLimits {
-            max_drawdown_threshold: risk_config.max_drawdown / 100.0,
-            ..Default::default()
-        })
-    } else {
-        None
-    };
-
-    // Display risk parameters
-    match &stop_loss {
-        StopLossMethod::None => println!("Stop loss: None"),
-        StopLossMethod::FixedPercent(pct) => println!("Stop loss: Fixed {:.1}%", pct),
-        StopLossMethod::Trailing(pct) => println!("Stop loss: Trailing {:.1}%", pct),
-        StopLossMethod::ATR { multiplier, period } => {
-            println!("Stop loss: ATR ({} x {} period)", multiplier, period)
-        }
-        StopLossMethod::TimeLimit(bars) => println!("Stop loss: Time limit {} bars", bars),
-    }
-
-    match &position_sizing {
-        PositionSizingMethod::FixedPercent(pct) => {
-            println!("Position size: {:.1}% of equity", pct)
-        }
-        PositionSizingMethod::FixedDollar(amt) => println!("Position size: ${:.0}", amt),
-        _ => {}
-    }
-
-    println!("Max drawdown threshold: {:.1}%\n", risk_config.max_drawdown);
-
-    let mut engine = BacktestEngine::new(data, capital, execution_model)
-        .with_stop_loss(stop_loss)
-        .with_position_sizing(position_sizing);
-
-    if let Some(limits) = risk_limits {
-        engine = engine.with_risk_limits(limits);
-    }
+    let engine = BacktestEngine::new(data, capital, execution_model);
 
     println!("Running backtest...\n");
     let result = engine.run(strategy_display.as_ref());
@@ -516,28 +297,36 @@ fn run_backtest(
     println!("Final equity:    ${:>12.2}", result.final_equity);
     println!("Total return:    {:>11.2}%", result.total_return * 100.0);
     println!("Sharpe ratio:    {:>12.2}", result.sharpe_ratio);
-    println!("Sortino ratio:   {:>12.2}", result.sortino_ratio);
-    println!("Calmar ratio:    {:>12.2}", result.calmar_ratio);
     println!("Max drawdown:    {:>11.2}%", result.max_drawdown * 100.0);
     println!("Total trades:    {:>12}", result.total_trades);
-
-    if let Some(stats) = &result.trade_stats {
-        println!("\n=== TRADE ANALYSIS ===");
-        println!("Win rate:        {:>11.1}%", stats.win_rate * 100.0);
-        println!("Profit factor:   {:>12.2}", stats.profit_factor);
-        println!("Avg win:         ${:>11.2}", stats.avg_win);
-        println!("Avg loss:        ${:>11.2}", stats.avg_loss);
-        println!("Largest win:     ${:>11.2}", stats.largest_win);
-        println!("Largest loss:    ${:>11.2}", stats.largest_loss);
-        println!("Expectancy:      ${:>11.2}", stats.expectancy);
-        println!("Win streak:      {:>12}", stats.longest_win_streak);
-        println!("Loss streak:     {:>12}", stats.longest_loss_streak);
-    }
 
     let output_path = Path::new("results/backtests").join(output_filename);
     match result.save_to_file(&output_path) {
         Ok(_) => println!("\nSaved to: {}", output_path.display()),
         Err(e) => eprintln!("Failed to save: {}", e),
+    }
+
+    // Generate charts if --plot flag is set
+    if plot {
+        let chart_dir = Path::new("results/charts");
+        if let Err(e) = std::fs::create_dir_all(chart_dir) {
+            eprintln!("Failed to create charts directory: {}", e);
+        } else {
+            let strategy_prefix = strategy_name.replace("-", "_");
+            let equity_path = chart_dir.join(format!("{strategy_prefix}_{fast}_{slow}_equity.png"));
+            let drawdown_path =
+                chart_dir.join(format!("{strategy_prefix}_{fast}_{slow}_drawdown.png"));
+
+            match plotting::plot_equity_curve(&result, &equity_path) {
+                Ok(_) => println!("Equity chart: {}", equity_path.display()),
+                Err(e) => eprintln!("Failed to generate equity chart: {}", e),
+            }
+
+            match plotting::plot_drawdown(&result, &drawdown_path) {
+                Ok(_) => println!("Drawdown chart: {}", drawdown_path.display()),
+                Err(e) => eprintln!("Failed to generate drawdown chart: {}", e),
+            }
+        }
     }
 }
 
@@ -560,8 +349,8 @@ fn run_optimization(
     slow_range: &str,
     step: usize,
     capital: f64,
-    execution_model: ExecutionModel,
-    stop_loss: StopLossMethod,
+    commission: f64,
+    slippage: f64,
 ) {
     println!("StrataQuant - Parameter Optimization");
     println!("====================================\n");
@@ -580,34 +369,12 @@ fn run_optimization(
 
     println!("Fast period range: {}-{}", fast_min, fast_max);
     println!("Slow period range: {}-{}", slow_min, slow_max);
-    println!("Step size: {}", step);
+    println!("Step size: {}\n", step);
 
-    match &stop_loss {
-        StopLossMethod::None => println!("Stop loss: None"),
-        StopLossMethod::FixedPercent(pct) => println!("Stop loss: Fixed {:.1}%", pct),
-        StopLossMethod::Trailing(pct) => println!("Stop loss: Trailing {:.1}%", pct),
-        StopLossMethod::ATR { multiplier, period } => {
-            println!("Stop loss: ATR ({} x {} period)", multiplier, period)
-        }
-        _ => {}
-    }
-    println!();
-
-    // Create sweep with stop loss
+    let execution_model = ExecutionModel::new(commission, slippage);
     let sweep = ParameterSweep::new(data, capital, execution_model);
 
-    // Run optimization with stop loss
-    println!(
-        "Testing {} combinations...",
-        ((fast_max - fast_min) / step + 1) * ((slow_max - slow_min) / step + 1)
-    );
-
-    let results = sweep.sweep_sma_periods_with_stops(
-        (fast_min, fast_max),
-        (slow_min, slow_max),
-        step,
-        stop_loss,
-    );
+    let results = sweep.sweep_sma_periods((fast_min, fast_max), (slow_min, slow_max), step);
 
     println!(
         "\nOptimization complete. Tested {} combinations.\n",
@@ -642,12 +409,7 @@ fn run_optimization(
     println!("\nFull results saved to: {}", output_path.display());
 }
 
-fn run_walkforward(
-    train_ratio: f64,
-    capital: f64,
-    execution_model: ExecutionModel,
-    stop_loss: StopLossMethod,
-) {
+fn run_walkforward(train_ratio: f64, capital: f64, commission: f64, slippage: f64) {
     println!("StrataQuant - Walk-Forward Validation");
     println!("=====================================\n");
 
@@ -659,20 +421,10 @@ fn run_walkforward(
 
     let data = load_from_parquet(data_path).expect("Failed to load data");
 
-    match &stop_loss {
-        StopLossMethod::None => println!("Stop loss: None"),
-        StopLossMethod::FixedPercent(pct) => println!("Stop loss: Fixed {:.1}%", pct),
-        StopLossMethod::Trailing(pct) => println!("Stop loss: Trailing {:.1}%", pct),
-        StopLossMethod::ATR { multiplier, period } => {
-            println!("Stop loss: ATR ({} x {} period)", multiplier, period)
-        }
-        _ => {}
-    }
-    println!();
-
+    let execution_model = ExecutionModel::new(commission, slippage);
     let walkforward = WalkForward::new(data, capital, execution_model);
 
-    let result = walkforward.run_with_stops(train_ratio, stop_loss);
+    let result = walkforward.run(train_ratio);
 
     println!("=== WALK-FORWARD RESULTS ===");
     println!(
@@ -702,7 +454,7 @@ fn run_walkforward(
     println!("\nResults saved to: {}", output_path.display());
 }
 
-fn run_comparison(capital: f64, execution_model: ExecutionModel, stop_loss: StopLossMethod) {
+fn run_comparison(capital: f64, commission: f64, slippage: f64) {
     println!("StrataQuant - Strategy Comparison");
     println!("=================================\n");
 
@@ -713,18 +465,9 @@ fn run_comparison(capital: f64, execution_model: ExecutionModel, stop_loss: Stop
     }
 
     let data = load_from_parquet(data_path).expect("Failed to load data");
-    println!("Loaded {} candles", data.len());
+    println!("Loaded {} candles\n", data.len());
 
-    match &stop_loss {
-        StopLossMethod::None => println!("Stop loss: None"),
-        StopLossMethod::FixedPercent(pct) => println!("Stop loss: Fixed {:.1}%", pct),
-        StopLossMethod::Trailing(pct) => println!("Stop loss: Trailing {:.1}%", pct),
-        StopLossMethod::ATR { multiplier, period } => {
-            println!("Stop loss: ATR ({} x {} period)", multiplier, period)
-        }
-        _ => {}
-    }
-    println!();
+    let execution_model = ExecutionModel::new(commission, slippage);
 
     let strategies: Vec<Box<dyn strataquant::strategies::Strategy>> = vec![
         Box::new(BuyAndHold::new()),
@@ -740,8 +483,7 @@ fn run_comparison(capital: f64, execution_model: ExecutionModel, stop_loss: Stop
     println!("{}", "=".repeat(72));
 
     for strategy in strategies {
-        let engine = BacktestEngine::new(data.clone(), capital, execution_model.clone())
-            .with_stop_loss(stop_loss.clone());
+        let engine = BacktestEngine::new(data.clone(), capital, execution_model.clone());
         let result = engine.run(strategy.as_ref());
 
         println!(
